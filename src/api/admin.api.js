@@ -63,6 +63,7 @@ export const adminAPI = {
 
   // Developer only
   getKeyUsers: () => apiClient.get('/admin/key-users'),
+  resetSystem: () => apiClient.delete('/admin/reset-system'),
 };
 
 export default adminAPI;
