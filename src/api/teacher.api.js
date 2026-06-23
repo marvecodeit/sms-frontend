@@ -42,9 +42,11 @@ export const teacherAPI = {
       },
     }),
 
-  // ✅ NEW
   uploadResultsNew: (data) =>
     apiClient.post('/teacher/upload-results', data),
+
+  fetchSheetPreview: (url) =>
+    apiClient.get('/results/fetch-sheet', { params: { url } }),
 
   // =====================================
   // ASSIGNMENTS

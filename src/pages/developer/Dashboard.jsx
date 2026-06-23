@@ -1,16 +1,18 @@
 import { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../../context/AuthContext';
 import MainLayout from '../../layouts/MainLayout';
 import adminAPI from '../../api/admin.api';
 import { toast } from 'react-toastify';
 import {
   Shield, Users, BarChart3, Settings, LayoutDashboard,
-  KeyRound, Download, RefreshCw, Eye, EyeOff, TriangleAlert, Trash2,
+  KeyRound, Download, RefreshCw, Eye, EyeOff, TriangleAlert, Trash2, FileDown,
 } from 'lucide-react';
 
 const TABS = [
   { id: 'overview',   label: 'Overview',   Icon: LayoutDashboard },
   { id: 'key-access', label: 'Key Access', Icon: KeyRound },
+  { id: 'export',     label: 'Export Staff', Icon: FileDown },
   { id: 'reset',      label: 'Reset',      Icon: TriangleAlert },
 ];
 
@@ -253,6 +255,255 @@ function KeyAccessTab() {
   );
 }
 
+// ─── Export Staff Tab ─────────────────────────────────────────────────────────
+const ROLE_LABEL = {
+  developer: 'Developer', admin: 'Admin', principal: 'Principal',
+  hoa: 'Head of Activities', secretary: 'Secretary', teacher: 'Teacher',
+};
+
+const ROLE_BG = {
+  developer: 'FF7C3AED', admin: 'FF2563EB', principal: 'FF059669',
+  hoa: 'FF0891B2', secretary: 'FFD97706', teacher: 'FFDC2626',
+};
+
+function ExportStaffTab() {
+  const [staff, setStaff]     = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+  const [filter, setFilter]   = useState('all');
+
+  const fetchStaff = async () => {
+    setLoading(true);
+    try {
+      const { data } = await adminAPI.getAllStaff();
+      setStaff(data.staff || []);
+      setFetched(true);
+      toast.success(`Loaded ${data.total} staff members`);
+    } catch {
+      toast.error('Failed to load staff');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const roles    = ['all', ...new Set(staff.map(s => s.role))];
+  const filtered = filter === 'all' ? staff : staff.filter(s => s.role === filter);
+
+  const exportExcel = () => {
+    if (!staff.length) return;
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Sheet 1: All Staff ───────────────────────────────────────────────────
+    const allRows = staff.map((s, i) => ({
+      'S/N':          i + 1,
+      'Full Name':    s.fullname   || '—',
+      'Email':        s.email      || '—',
+      'Role':         ROLE_LABEL[s.role] || s.role,
+      'School Name':  s.schoolName || '—',
+      'Subject':      s.subject    || '—',
+      'Date Created': s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-NG') : '—',
+      'Default Password': '123456',
+    }));
+
+    const wsAll = XLSX.utils.json_to_sheet(allRows);
+    wsAll['!cols'] = [4, 26, 30, 20, 28, 18, 16, 18].map(wch => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, wsAll, 'All Staff');
+
+    // ── Per-role sheets ──────────────────────────────────────────────────────
+    const ORDER = ['developer', 'admin', 'principal', 'hoa', 'secretary', 'teacher'];
+    ORDER.forEach(role => {
+      const group = staff.filter(s => s.role === role);
+      if (!group.length) return;
+
+      const rows = group.map((s, i) => ({
+        'S/N':          i + 1,
+        'Full Name':    s.fullname   || '—',
+        'Email':        s.email      || '—',
+        'School Name':  s.schoolName || '—',
+        'Subject':      s.subject    || '—',
+        'Date Created': s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-NG') : '—',
+        'Default Password': '123456',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [4, 26, 30, 28, 18, 16, 18].map(wch => ({ wch }));
+      XLSX.utils.book_append_sheet(wb, ws, ROLE_LABEL[role] || role);
+    });
+
+    const now      = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `Staff_Credentials_${now}.xlsx`);
+    toast.success('Excel file downloaded');
+  };
+
+  const exportTxt = () => {
+    if (!staff.length) return;
+    const now = new Date().toLocaleString('en-NG', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const lines = [
+      '╔══════════════════════════════════════════════════════════╗',
+      '║           SCHOOLMS — COMPLETE STAFF CREDENTIALS          ║',
+      '╚══════════════════════════════════════════════════════════╝',
+      `  Generated : ${now}`,
+      `  Total     : ${staff.length} staff member(s)`,
+      '',
+      '  NOTE: Default password is 123456. Change in production.',
+      '',
+      '════════════════════════════════════════════════════════════',
+    ];
+
+    const ORDER = ['developer', 'admin', 'principal', 'hoa', 'secretary', 'teacher'];
+    ORDER.forEach(role => {
+      const group = staff.filter(s => s.role === role);
+      if (!group.length) return;
+      lines.push('', `── ${(ROLE_LABEL[role] || role).toUpperCase()} (${group.length}) ${'─'.repeat(42 - (ROLE_LABEL[role] || role).length)}`);
+      group.forEach((s, i) => {
+        lines.push('');
+        lines.push(`  [${i + 1}] ${s.fullname}`);
+        lines.push(`       Email    : ${s.email}`);
+        if (s.schoolName) lines.push(`       School   : ${s.schoolName}`);
+        if (s.subject)    lines.push(`       Subject  : ${s.subject}`);
+        lines.push(`       Created  : ${s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-NG') : '—'}`);
+        lines.push(`       Password : 123456`);
+      });
+    });
+
+    lines.push('', '════════════════════════════════════════════════════════════');
+    lines.push('  CONFIDENTIAL — Do not share outside authorised personnel.');
+    lines.push('════════════════════════════════════════════════════════════');
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: `Staff_Credentials_${Date.now()}.txt` });
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Text file downloaded');
+  };
+
+  return (
+    <div className="max-w-5xl space-y-5">
+
+      {/* Header */}
+      <div className="bg-gradient-to-br from-blue-900 to-blue-700 rounded-2xl p-6 text-white">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+            <FileDown size={20} className="text-white" />
+          </div>
+          <div>
+            <h2 className="font-bold text-lg">Export All Staff</h2>
+            <p className="text-blue-200 text-xs">Developer, Admin, Principal, HOA, Secretary, Teachers</p>
+          </div>
+        </div>
+        <p className="text-blue-100 text-sm">
+          Export every staff member's credentials and details as Excel (.xlsx) or plain text (.txt).
+        </p>
+      </div>
+
+      {/* Actions row */}
+      <div className="flex flex-wrap gap-3">
+        <button onClick={fetchStaff} disabled={loading}
+          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition">
+          {loading
+            ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />Loading…</>
+            : <><RefreshCw size={15} />{fetched ? 'Refresh' : 'Load All Staff'}</>}
+        </button>
+
+        {fetched && staff.length > 0 && (
+          <>
+            <button onClick={exportExcel}
+              className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition">
+              <Download size={15} /> Export Excel (.xlsx)
+            </button>
+            <button onClick={exportTxt}
+              className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-800 text-white rounded-xl text-sm font-semibold transition">
+              <FileDown size={15} /> Export Text (.txt)
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Filter pills */}
+      {fetched && staff.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {roles.map(r => (
+            <button key={r} onClick={() => setFilter(r)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold capitalize transition ${
+                filter === r ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}>
+              {r === 'all' ? `All (${staff.length})` : `${ROLE_LABEL[r] || r} (${staff.filter(s => s.role === r).length})`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Table */}
+      {fetched && (
+        filtered.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
+            <Users size={36} className="text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500">No staff found for this filter</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                {filtered.length} record{filtered.length !== 1 ? 's' : ''}
+              </p>
+              <p className="text-xs text-gray-400">Default password: <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded">123456</span></p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left font-semibold">#</th>
+                    <th className="px-4 py-3 text-left font-semibold">Full Name</th>
+                    <th className="px-4 py-3 text-left font-semibold">Email</th>
+                    <th className="px-4 py-3 text-left font-semibold">Role</th>
+                    <th className="px-4 py-3 text-left font-semibold hidden md:table-cell">School</th>
+                    <th className="px-4 py-3 text-left font-semibold hidden lg:table-cell">Subject</th>
+                    <th className="px-4 py-3 text-left font-semibold hidden lg:table-cell">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map((s, i) => (
+                    <tr key={s._id} className="hover:bg-gray-50 transition">
+                      <td className="px-4 py-3 text-gray-400 text-xs">{i + 1}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs flex-shrink-0">
+                            {(s.fullname || 'U').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </div>
+                          <span className="font-semibold text-gray-900 text-sm">{s.fullname}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{s.email}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${ROLE_COLOR[s.role] || 'bg-gray-100 text-gray-600'}`}>
+                          {ROLE_LABEL[s.role] || s.role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs hidden md:table-cell">{s.schoolName || '—'}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell">{s.subject || '—'}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs hidden lg:table-cell">
+                        {s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-NG') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      )}
+
+      {!fetched && !loading && (
+        <p className="text-sm text-gray-400 text-center pt-4">
+          Click <strong>Load All Staff</strong> to fetch every staff member.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Reset Tab ───────────────────────────────────────────────────────────────
 const WHAT_GETS_CLEARED = [
   'All students',
@@ -457,6 +708,7 @@ export default function DeveloperDashboard() {
 
         {tab === 'overview'   && <OverviewTab />}
         {tab === 'key-access' && <KeyAccessTab />}
+        {tab === 'export'     && <ExportStaffTab />}
         {tab === 'reset'      && <ResetTab />}
 
       </div>

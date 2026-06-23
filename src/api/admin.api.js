@@ -62,8 +62,9 @@ export const adminAPI = {
   deleteStudent: (id) => apiClient.delete(`/admin/students/${id}`),
 
   // Developer only
-  getKeyUsers: () => apiClient.get('/admin/key-users'),
-  resetSystem: () => apiClient.delete('/admin/reset-system'),
+  getKeyUsers:  () => apiClient.get('/admin/key-users'),
+  getAllStaff:  () => apiClient.get('/admin/all-staff'),
+  resetSystem:  () => apiClient.delete('/admin/reset-system'),
 };
 
 export default adminAPI;
